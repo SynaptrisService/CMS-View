@@ -1,0 +1,73 @@
+create view [dbo].[VW_Transfer_Provider_Scheduler_Overlaps_Report]
+as
+select Distinct 
+(Select top 1 isnull([Created On],'')  
+	from 
+		(
+		select [To Provider]  as Provider,z.[Created On] from  [2_28_Provider Regular Schedule]  a INNER join (select x.* from Transfer_Room_Hold_Schedule x inner join
+		(select [To Provider], max([Created On]) [Created On] from  Transfer_Room_Hold_Schedule group by [To Provider]) y on x.[To Provider]=y.[To Provider] 
+		and x.[Created On]=y.[Created On] ) z on a.Provider=z.[To Provider] where isnull(z.[To Provider],'')!=''
+		Union 
+		select [To Provider] as Provider,z.[Created On] from [Provider_Regular_Schedule] a INNER join (select x.* from Transfer_Room_Hold_Schedule x inner join
+		(select [To Provider], max([Created On]) [Created On] from  Transfer_Room_Hold_Schedule group by [To Provider]) y on x.[To Provider]=y.[To Provider] 
+		and x.[Created On]=y.[Created On] ) z on a.Provider=z.[To Provider] where isnull(z.[To Provider],'')!='')P where p.Provider=a.[Request Provider])[Created on],
+		 b.[Clinic date], (RIGHT(CONVERT(VARCHAR, r.[Clinic Start Time], 100),7)) as[Start Time],(RIGHT(CONVERT(VARCHAR, r.[Clinic End Time], 100),7)) as [End Tine]
+/*Due to unavailability of rooms not show in Neprology division Provder:Varnell Jr, Charles, Request provider instead of Provier*/
+		 ,a.[Request Provider] as Provider,a.Location, a.[schedule week no] [Clinic Schedule Week],a.[day of week]  [Work Days] --,a.[Room Number]
+		from 
+		(
+		select * from  [Room_Finder_Schedule_dataset_Rooms_Percentage]a  where  isnull(a.[Rooms Percentage],0)<=20 and (isnull(a.[Rooms Percentage],0) >0 ) and isnull([Request Provider],'')!=''
+		) a  
+		inner join  
+	(
+	select Provider,[Created On] ,[clinic schedule week],[work days],[Clinic Hours Category] ,[Clinic Start Time],[Clinic End Time],location ,z.splitdata [Room number],[Schedule Start Date],[Schedule End Date]
+	from  [2_28_Provider Regular Schedule] cross apply (select * from fnSplitString([Room Number],';')) z WHERE PROVIDER IN (SELECT DISTINCT [To Provider] FROM Transfer_Room_Hold_Schedule)
+	Union 
+	select Provider,[Created On] ,[clinic schedule week],[work days] ,[Clinic Hours Category] ,[Clinic Start Time],[Clinic End Time],location ,z.splitdata [Room number],[Schedule Start Date],[Schedule End Date]
+	from  [Provider_Regular_Schedule] cross apply (select * from fnSplitString([Room Number],';')) z  WHERE PROVIDER IN (SELECT DISTINCT [To Provider] FROM Transfer_Room_Hold_Schedule)
+	AND Provider  not in (select Provider  from  [2_28_Provider Regular Schedule] )
+	) r on 
+isnull(a.[Request Provider],'')=isnull(r.Provider ,'') 
+and a.[schedule week no]=r.[Clinic schedule week]
+and a.[day of week]=r.[work days] 
+and a.location=r.location 
+and a.[Room number]=r.[Room Number]  
+--and a.[Clinic Hours Category]=r.[Clinic Hours Category]  
+
+and (cast(a.[Available Start Time] as time) between cast(r.[Clinic Start Time] as time) and cast(r.[Clinic End Time] as time)
+	or cast(a.[Available End Time] as time) between cast(r.[Clinic Start Time] as time) and cast(r.[Clinic End Time] as time)
+	or cast(r.[Clinic Start Time] as time) between cast(a.[Available Start Time] as time) and cast(a.[Available End Time] as time)
+	or cast(r.[Clinic End Time] as time) between cast(a.[Available Start Time] as time) and cast(a.[Available End Time] as time))
+	and (cast(r.[Clinic End Time]  as time)!= cast(a.[Available Start Time] as time) 
+	and  (cast(r.[Clinic Start Time]  as time)!= cast(a.[Available End Time] as time))
+	)
+
+		Inner  join
+			(
+			select Distinct provider as [Overlap Provider],location,[Clinic schedule week],[work days],[Clinic Start Time],[Clinic end time],[Clinic date],[Room Number]
+			from [Room_Assignment_Detail] where
+			[Originating Process] not in ('Temporary Room Operations Hold Calendar','Temporary Room Operations Hold')
+			union
+			select Distinct provider as [Overlap Provider],location,[Clinic schedule week],[work days],[Clinic Start Time],[Clinic end time]
+			,[Clinic date],[Room Number]
+			from [Room_Assignment_Detail] where [Originating Process] in ('Temporary Room Operations Hold Calendar','Temporary Room Operations Hold')
+			and  (isnull([Division Name],'')!=(select top 1 [Division Name] from Division_Detail))
+			)b
+on a.[schedule week no]=b.[Clinic schedule week]
+and a.[day of week]=b.[work days] 
+and a.location=b.location 
+and a.[Room number]=b.[Room Number]  
+and a.[Date] =b.[Clinic Date]
+where isnull(a.[Request Provider],'')=isnull(r.Provider,'')
+and [Clinic Date] between r.[Schedule Start Date] and r.[Schedule End Date]
+and isnull(a.[Rooms Percentage],0)<=20 
+and (isnull(a.[Rooms Percentage],0) >0 
+and isnull(a.[Rooms Percentage],0)<=20)  
+and (cast(a.[Available Start Time] as time) between cast(b.[Clinic Start Time] as time) and cast(b.[Clinic End Time] as time)
+	or cast(a.[Available End Time] as time) between cast(b.[Clinic Start Time] as time) and cast(b.[Clinic End Time] as time)
+	or cast(b.[Clinic Start Time] as time) between cast(a.[Available Start Time] as time) and cast(a.[Available End Time] as time)
+	or cast(b.[Clinic End Time] as time) between cast(a.[Available Start Time] as time) and cast(a.[Available End Time] as time))
+	and (cast(b.[Clinic End Time]  as time)!= cast(a.[Available Start Time] as time) 
+	and  (cast(b.[Clinic Start Time]  as time)!= cast(a.[Available End Time] as time))
+	)
+GO
